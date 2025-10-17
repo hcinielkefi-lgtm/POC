@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Paiements v10 — Architecture Référentiel en Ingestion</title>
+
+  <!-- Mermaid 10.9.4 -->
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ 
+      startOnLoad: true, 
+      theme: "forest", 
+      securityLevel: "loose",
+      fontFamily: "Segoe UI, Roboto, Arial, sans-serif"
+    });
+  </script>
+
+  <style>
+    /* Variables CSS pour une maintenance simplifiée */
+    :root {
+      --primary-color: #003366;
+      --secondary-color: #0052cc;
+      --accent-color: #0a66ff;
+      --success-color: #23a559;
+      --light-bg: #f7f9fc;
+      --dark-text: #1a1a1a;
+      --medium-text: #0b3358;
+      --light-text: #68778a;
+      --white: #fff;
+      --border-radius: 12px;
+      --box-shadow: 0 2px 8px rgba(0,0,0,.06);
+      --spacing-xs: 8px;
+      --spacing-sm: 12px;
+      --spacing-md: 18px;
+      --spacing-lg: 22px;
+      --spacing-xl: 28px;
+    }
+
+    /* Reset et styles de base */
+    * {
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: Segoe UI, Roboto, Arial, sans-serif;
+      margin: var(--spacing-lg) auto;
+      max-width: 1240px;
+      background: var(--light-bg);
+      color: var(--dark-text);
+      line-height: 1.6;
+      padding: 0 var(--spacing-sm);
+    }
+
+    /* En-tête */
+    header {
+      background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+      color: var(--white);
+      padding: var(--spacing-md) var(--spacing-lg);
+      border-radius: var(--border-radius);
+      margin-bottom: var(--spacing-lg);
+      box-shadow: var(--box-shadow);
+    }
+
+    header h1 {
+      margin: 0 0 var(--spacing-xs) 0;
+      font-size: 1.8rem;
+    }
+
+    header p {
+      margin: 0;
+      opacity: 0.9;
+      font-size: 1rem;
+    }
+
+    /* Titres */
+    h2 {
+      color: var(--primary-color);
+      border-left: 4px solid var(--accent-color);
+      padding-left: var(--spacing-sm);
+      margin-top: var(--spacing-xl);
+      font-size: 1.5rem;
+    }
+
+    h3 {
+      color: var(--medium-text);
+      margin-top: var(--spacing-md);
+      font-size: 1.2rem;
+    }
+
+    /* Diagrammes Mermaid */
+    .mermaid {
+      background: var(--white);
+      border-radius: var(--border-radius);
+      padding: var(--spacing-sm);
+      box-shadow: var(--box-shadow);
+      margin: var(--spacing-sm) 0;
+      overflow: auto;
+    }
+
+    /* Tableaux */
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: var(--white);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 6px rgba(0,0,0,.05);
+      margin: var(--spacing-sm) 0;
+    }
+
+    th, td {
+      border: 1px solid #e6edf5;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eaf2ff;
+      color: var(--medium-text);
+      font-weight: 600;
+    }
+
+    /* Blocs de code */
+    pre {
+      background: #f2f6fb;
+      border-left: 4px solid var(--accent-color);
+      border-radius: 8px;
+      padding: var(--spacing-sm);
+      overflow: auto;
+      margin: var(--spacing-sm) 0;
+    }
+
+    code {
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 0.9rem;
+    }
+
+    .k {
+      background: #eef4ff;
+      padding: 0 4px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* Notes importantes */
+    .note {
+      background: var(--white);
+      border-left: 4px solid var(--success-color);
+      padding: var(--spacing-sm);
+      border-radius: 8px;
+      margin: var(--spacing-sm) 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    /* Pied de page */
+    footer {
+      text-align: center;
+      color: var(--light-text);
+      margin: var(--spacing-xl) 0 var(--spacing-xs);
+      font-size: .9rem;
+      padding: var(--spacing-sm);
+    }
+
+    /* Navigation interne pour faciliter la consultation */
+    .toc {
+      background: var(--white);
+      border-radius: var(--border-radius);
+      padding: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
+      box-shadow: var(--box-shadow);
+    }
+
+    .toc h2 {
+      margin-top: 0;
+      font-size: 1.3rem;
+    }
+
+    .toc ul {
+      columns: 2;
+      padding-left: var(--spacing-lg);
+    }
+
+    .toc li {
+      margin-bottom: var(--spacing-xs);
+      break-inside: avoid;
+    }
+
+    .toc a {
+      color: var(--medium-text);
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      color: var(--accent-color);
+      text-decoration: underline;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      body {
+        padding: 0 var(--spacing-xs);
+        margin: var(--spacing-sm) auto;
+      }
+      
+      header h1 {
+        font-size: 1.5rem;
+      }
+      
+      header p {
+        font-size: 0.9rem;
+      }
+      
+      .toc ul {
+        columns: 1;
+      }
+      
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+      
+      h2 {
+        font-size: 1.3rem;
+      }
+      
+      h3 {
+        font-size: 1.1rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      :root {
+        --spacing-lg: 16px;
+        --spacing-md: 14px;
+        --spacing-sm: 10px;
+        --spacing-xs: 6px;
+      }
+      
+      header h1 {
+        font-size: 1.3rem;
+      }
+      
+      th, td {
+        padding: 6px 8px;
+        font-size: 0.85rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header role="banner">
+    <h1>Plateforme Paiements — v10</h1>
+    <p>Référentiel en Ingestion • Kamelet <span class="k">referentiel-loader</span> • CMD ISO20022 • Split/Chunk • Routage Urgent/Standard & Unit/Batch • MultiOutput • Erreurs/Rejeu • Observabilité • Déploiement Spring Boot (IaC)</p>
+  </header>
+
+  <!-- Table des matières pour faciliter la navigation -->
+  <nav class="toc" aria-labelledby="toc-title">
+    <h2 id="toc-title">Table des matières</h2>
+    <ul>
+      <li><a href="#architecture-ensemble">1. Architecture d'ensemble</a></li>
+      <li><a href="#referentiel-flux">2. Référentiel de flux</a></li>
+      <li><a href="#kamelet-referentiel">3. Kamelet referentiel-loader</a></li>
+      <li><a href="#routage">4. Routage Urgent/Standard & Unitaire/Batch</a></li>
+      <li><a href="#sequence-globale">5. Séquence globale</a></li>
+      <li><a href="#multioutput">6. MultiOutput</a></li>
+      <li><a href="#gestion-erreurs">7. Gestion d'erreurs, DLQ et rejeu</a></li>
+      <li><a href="#observabilite">8. Observabilité et traçabilité</a></li>
+      <li><a href="#framework-kamelets">9. Framework Kamelets réutilisables</a></li>
+      <li><a href="#deploiement">10. Déploiement Spring Boot</a></li>
+      <li><a href="#annexes">11. Annexes — DDL SQL & API du référentiel</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <!-- 1. Architecture 3 couches avec référentiel au début -->
+    <section id="architecture-ensemble">
+      <h2>1. Architecture d'ensemble (référentiel consulté dès l'ingestion)</h2>
+      <div class="mermaid">
+flowchart TB
+  subgraph INGESTION
+    A0[referentiel-loader]
+    A1[Entree SFTP MQ API]
+    A2[Lire ReferentielFlux]
+    A3[Validation technique]
+    A4[ClaimCheck stockage brut]
+    A5[Idempotence]
+    A6[Choix parser & mapping]
+    A7[Dispatch vers Metier]
+  end
+  subgraph METIER
+    B1[Parsing selon source]
+    B2[Transformation vers CMD]
+    B3[Validation XSD CMD]
+    B4[Enrichissement fonctionnel]
+    B5[Decision rail mode split]
+    B6[Publication vers bus]
+  end
+  subgraph SORTIE
+    C1[MultiOutput Router]
+    C2[Mappings pacs camt mt json]
+    C3[Envoi HTTP MQ File Kafka]
+    C4[Reporting Audit]
+  end
+  A0-->A1-->A2-->A3-->A4-->A5-->A6-->A7
+  A7-->B1-->B2-->B3-->B4-->B5-->B6
+  B6-->C1-->C2-->C3-->C4
+      </div>
+
+      <div class="note" role="note">
+        Le Kamelet <b>referentiel-loader</b> enrichit le message dès l'entrée avec les règles du référentiel (format, mapping CMD, split/chunk, rail/mode, outputs).  
+        Ces métadonnées pilotent le reste du pipeline.
+      </div>
+    </section>
+
+    <!-- 2. Référentiel de flux : tables, exemples, gouvernance -->
+    <section id="referentiel-flux">
+      <h2>2. Référentiel de flux — modèle détaillé</h2>
+
+      <h3>2.1 Table FLUX_RULES (pilotage parsing, mapping CMD, split/chunk, rails)</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Colonne</th>
+              <th scope="col">Type</th>
+              <th scope="col">Description</th>
+              <th scope="col">Exemple</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>type</td><td>varchar(64)</td><td>Identifiant fonctionnel du flux</td><td>pain.001</td></tr>
+            <tr><td>channel</td><td>varchar(16)</td><td>Canal d'entrée</td><td>SFTP / API / MQ</td></tr>
+            <tr><td>source_format</td><td>varchar(16)</td><td>Format natif</td><td>XML / JSON / CSV / MT</td></tr>
+            <tr><td>cmd_mapping</td><td>varchar(128)</td><td>Transformation vers CMD</td><td>XSLT:pain_to_cmd.xsl</td></tr>
+            <tr><td>need_split</td><td>boolean</td><td>Split requis</td><td>true</td></tr>
+            <tr><td>split_expr</td><td>varchar(256)</td><td>XPath/JSONPath/line</td><td>/*/CdtTrfTxInf</td></tr>
+            <tr><td>chunk_size</td><td>int</td><td>Taille des lots post-split</td><td>500</td></tr>
+            <tr><td>rail</td><td>varchar(16)</td><td>URGENT / STANDARD (par défaut)</td><td>STANDARD</td></tr>
+            <tr><td>mode</td><td>varchar(16)</td><td>UNIT / BATCH (par défaut)</td><td>BATCH</td></tr>
+            <tr><td>route_target</td><td>varchar(64)</td><td>Route cible métier</td><td>sepa-standard</td></tr>
+            <tr><td>active</td><td>boolean</td><td>Activation</td><td>true</td></tr>
+            <tr><td>valid_from</td><td>timestamp</td><td>Date d'effet</td><td>2025-01-01</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.2 Table OUTPUT_RULES (pilotage MultiOutput)</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Colonne</th>
+              <th scope="col">Type</th>
+              <th scope="col">Description</th>
+              <th scope="col">Exemple</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>flux_type</td><td>varchar(64)</td><td>Référence à FLUX_RULES.type</td><td>pain.001</td></tr>
+            <tr><td>output_name</td><td>varchar(64)</td><td>Nom lisible de la destination</td><td>RT1</td></tr>
+            <tr><td>output_format</td><td>varchar(32)</td><td>Format de sortie</td><td>PACS008 / CAMT056 / MT103 / JSON</td></tr>
+            <tr><td>endpoint_type</td><td>varchar(16)</td><td>Type d'endpoint</td><td>HTTP / MQ / FILE / KAFKA</td></tr>
+            <tr><td>endpoint_uri</td><td>varchar(256)</td><td>URI de destination</td><td>http://rt1/api/inbound</td></tr>
+            <tr><td>active</td><td>boolean</td><td>Activation</td><td>true</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.3 Exemples de lignes (cohérents avec nos échanges)</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">TYPE</th>
+              <th scope="col">CHANNEL</th>
+              <th scope="col">SOURCE_FORMAT</th>
+              <th scope="col">CMD_MAPPING</th>
+              <th scope="col">NEED_SPLIT</th>
+              <th scope="col">SPLIT_EXPR</th>
+              <th scope="col">CHUNK_SIZE</th>
+              <th scope="col">RAIL</th>
+              <th scope="col">MODE</th>
+              <th scope="col">ROUTE_TARGET</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>pain.001</td><td>SFTP</td><td>XML</td><td>XSLT:pain_to_cmd.xsl</td><td>true</td><td>/*/CdtTrfTxInf</td><td>500</td><td>STANDARD</td><td>BATCH</td><td>sepa-standard</td></tr>
+            <tr><td>json.sct</td><td>API</td><td>JSON</td><td>JOLT:json_to_cmd.json</td><td>false</td><td>-</td><td>-</td><td>URGENT</td><td>UNIT</td><td>sepa-urgent</td></tr>
+            <tr><td>mt101</td><td>MQ</td><td>MT</td><td>Bean:mt101ToCmd()</td><td>true</td><td>/*/Tx</td><td>1</td><td>STANDARD</td><td>UNIT</td><td>swift-outbound</td></tr>
+            <tr><td>csv.bulk</td><td>SFTP</td><td>CSV</td><td>Bean:csvToCmd()</td><td>true</td><td>line</td><td>1000</td><td>STANDARD</td><td>BATCH</td><td>sepa-standard</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.4 Exemples de sorties (OUTPUT_RULES)</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">FLUX_TYPE</th>
+              <th scope="col">OUTPUT_NAME</th>
+              <th scope="col">OUTPUT_FORMAT</th>
+              <th scope="col">ENDPOINT_TYPE</th>
+              <th scope="col">ENDPOINT_URI</th>
+              <th scope="col">ACTIVE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>pain.001</td><td>RT1</td><td>PACS008</td><td>HTTP</td><td>http://rt1/api/inbound</td><td>true</td></tr>
+            <tr><td>pain.001</td><td>DATALAKE</td><td>JSON</td><td>KAFKA</td><td>payments.reporting.tx</td><td>true</td></tr>
+            <tr><td>mt101</td><td>SWIFT</td><td>MT103</td><td>MQ</td><td>jms:queue:swift.outbound</td><td>true</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3. Kamelet referentiel-loader -->
+    <section id="kamelet-referentiel">
+      <h2>3. Kamelet <code class="k">referentiel-loader</code> (lecture des règles en Ingestion)</h2>
+      <p>Rôle : appeler l'API RéférentielFlux (ou DB via un service) pour récupérer les paramètres et les injecter dans les headers/propriétés du message, avant toute autre étape.</p>
+      <pre><code>apiVersion: camel.apache.org/v1
+kind: Kamelet
+metadata:
+  name: referentiel-loader
+spec:
+  definition:
+    title: Referentiel Loader
+    type: object
+    properties:
+      referentielUrl:
+        type: string
+        default: "http://referentiel-flux.svc/api/flux"
+  flow:
+    from:
+      uri: kamelet:source
+      steps:
+        - setHeader:
+            name: fluxType
+            simple: "${header.CamelFileNameOnly}"
+        - toD: "{{referentielUrl}}?type=${header.fluxType}&channel=${header.channel}"
+        - unmarshal:
+            json: {}
+        - setHeader: { name: rail,         simple: "${body[rail]}" }
+        - setHeader: { name: mode,         simple: "${body[mode]}" }
+        - setProperty: { name: needSplit,  simple: "${body[needSplit]}" }
+        - setProperty: { name: chunkSize,  simple: "${body[chunkSize]}" }
+        - setProperty: { name: splitExpr,  simple: "${body[splitExpr]}" }
+        - setProperty: { name: cmdMapping, simple: "${body[cmdMapping]}" }
+        - to: "kamelet:sink"</code></pre>
+    </section>
+
+    <!-- 4. Routage : urgent/standard & unit/batch (corrigé) -->
+    <section id="routage">
+      <h2>4. Routage Urgent / Standard & Unitaire / Batch</h2>
+      <div class="mermaid">
+flowchart TB
+  start[CMD pret]
+  checkUrgp{SvcLvl = URGP}
+  checkBatch{NbTxs > 1 ou needSplit}
+  setUrgent[Rail = URGENT<br/>Mode = UNIT]
+  setStdBatch[Rail = STANDARD<br/>Mode = BATCH]
+  setStdUnit[Rail = STANDARD<br/>Mode = UNIT]
+  start --> checkUrgp
+  checkUrgp -->|Oui| setUrgent
+  checkUrgp -->|Non| checkBatch
+  checkBatch -->|Oui| setStdBatch
+  checkBatch -->|Non| setStdUnit
+      </div>
+    </section>
+
+    <!-- 5. Séquence globale -->
+    <section id="sequence-globale">
+      <h2>5. Séquence globale (référentiel consulté en premier)</h2>
+      <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant SRC as Source
+  participant ING as Ingestion
+  participant REF as Referentiel
+  participant MET as Metier
+  participant BUS as Bus
+  participant OUT as Sortie
+
+  SRC->>ING: Message brut (fichier, MQ, API)
+  ING->>REF: Appel referentiel-loader (type, channel)
+  REF-->>ING: cmdMapping, rail, mode, needSplit, splitExpr, chunkSize, outputs
+  ING->>ING: Validation, Idempotence, ClaimCheck
+  ING->>MET: Dispatch vers parser et mapping CMD
+  MET->>MET: Transformation vers CMD, Validation XSD, Enrichissement
+  MET->>BUS: Publication selon rail/mode
+  BUS->>OUT: MultiOutput Router
+  OUT-->>OUT: Mapping formats et envoi endpoints
+      </div>
+    </section>
+
+    <!-- 6. MultiOutput -->
+    <section id="multioutput">
+      <h2>6. MultiOutput — diffusion vers plusieurs destinations</h2>
+      <div class="mermaid">
+flowchart LR
+  cmd["CMD ISO20022"]
+  map_pacs["Map PACS008"]
+  map_camt["Map CAMT056"]
+  map_json["Map JSON"]
+  publish["Publication parallele"]
+  cmd-->map_pacs-->publish
+  cmd-->map_camt
+  cmd-->map_json
+      </div>
+    </section>
+
+    <!-- 7. Gestion d'erreurs / DLQ / Rejeu -->
+    <section id="gestion-erreurs">
+      <h2>7. Gestion d'erreurs, DLQ et rejeu</h2>
+      <div class="mermaid">
+flowchart TB
+  eTech[DLQTech erreurs parse map]
+  eBiz[DLQBiz erreurs metier]
+  replay[ReplayAPI]
+  audit[AuditDB]
+  status[Topic payments_status]
+  eTech-->replay
+  eBiz-->replay
+  replay-->status
+  eTech-->audit
+  eBiz-->audit
+      </div>
+    </section>
+
+    <!-- 8. Observabilité -->
+    <section id="observabilite">
+      <h2>8. Observabilité et traçabilité</h2>
+      <div class="mermaid">
+flowchart LR
+  apps[Apps Spring Boot]
+  otel[OpenTelemetry]
+  prom[Prometheus]
+  grafana[Grafana]
+  elk[ELK Stack]
+  apps-->otel-->prom-->grafana
+  otel-->elk
+      </div>
+    </section>
+
+    <!-- 9. Framework Kamelets -->
+    <section id="framework-kamelets">
+      <h2>9. Framework Kamelets réutilisables</h2>
+      <div class="mermaid">
+flowchart TB
+  k0[referentiel-loader]
+  k1[ingest-validator]
+  k2[claimcheck-store]
+  k3[idempotence-check]
+  k4[parse-source]
+  k5[to-cmd]
+  k6[router-rail]
+  k7[split-chunk]
+  k8[multioutput]
+  k9[audit-trace]
+  k10[error-handler]
+  k0-->k1-->k2-->k3-->k4-->k5-->k6-->k7-->k8-->k9
+      </div>
+    </section>
+
+    <!-- 10. Déploiement Spring Boot (IaC GitOps) -->
+    <section id="deploiement">
+      <h2>10. Déploiement Spring Boot (Kubernetes IaC GitOps)</h2>
+      <div class="mermaid">
+flowchart TB
+  subgraph ns_ingestion["Namespace ingestion"]
+    pod_ingest_api["pod-ingest-api"]
+    pod_ingest_mq["pod-ingest-mq"]
+  end
+  subgraph ns_metier["Namespace metier"]
+    pod_cmd_transform["pod-cmd-transform"]
+    pod_cmd_router["pod-cmd-router"]
+    pod_cmd_split["pod-cmd-split"]
+  end
+  subgraph ns_sortie["Namespace sortie"]
+    pod_multioutput["pod-multioutput"]
+    pod_reporting["pod-reporting"]
+  end
+  subgraph ns_infra["Namespace infra"]
+    kafka["kafka"]
+    postgres["postgres-audit"]
+    vault["vault-secrets"]
+  end
+  pod_ingest_api-->pod_cmd_transform
+  pod_cmd_transform-->pod_cmd_router-->pod_cmd_split-->pod_multioutput
+  pod_multioutput-->kafka
+  kafka-->postgres
+      </div>
+
+      <h3>10.1 Chaîne GitOps</h3>
+      <div class="mermaid">
+flowchart LR
+  git["Git Repos"]
+  ci["CI Build Test"]
+  reg["Registry Docker Maven"]
+  argo["ArgoCD"]
+  k8s["Clusters Kubernetes"]
+  git-->ci-->reg-->argo-->k8s
+      </div>
+    </section>
+
+    <!-- 11. Annexes : DDL SQL et API -->
+    <section id="annexes">
+      <h2>11. Annexes — DDL SQL & API du référentiel</h2>
+      <pre><code>CREATE TABLE FLUX_RULES (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(64) NOT NULL,
+  channel VARCHAR(16) NOT NULL,
+  source_format VARCHAR(16) NOT NULL,
+  cmd_mapping VARCHAR(128) NOT NULL,
+  need_split BOOLEAN NOT NULL DEFAULT FALSE,
+  split_expr VARCHAR(256),
+  chunk_size INT,
+  rail VARCHAR(16) NOT NULL,      -- URGENT | STANDARD
+  mode VARCHAR(16) NOT NULL,      -- UNIT | BATCH
+  route_target VARCHAR(64) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  valid_from TIMESTAMP
+);
+
+CREATE TABLE OUTPUT_RULES (
+  id SERIAL PRIMARY KEY,
+  flux_type VARCHAR(64) NOT NULL,
+  output_name VARCHAR(64) NOT NULL,
+  output_format VARCHAR(32) NOT NULL,
+  endpoint_type VARCHAR(16) NOT NULL,
+  endpoint_uri VARCHAR(256) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE
+);</code></pre>
+
+      <pre><code># API
+GET  /api/flux?type=pain.001&amp;channel=SFTP
+GET  /api/outputs?type=pain.001</code></pre>
+    </section>
+  </main>
+
+  <footer role="contentinfo">
+    © 2025 — Paiements v10 — Référentiel en Ingestion • Kamelet référentiel-loader • CMD • MultiOutput • Routage • IaC
+  </footer>
+</body>
+</html>
