@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Paiements v28 — 3 couches + Kafka + Business Urgent/NonUrgent + ObservabilityPlatform</title>
+
+<!-- Mermaid 10.9.4 -->
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+</script>
+
+<style>
+  :root { --p:#0f3b8c; --p2:#4b7bec; --g:#0b7a3b; --o:#b36b00; --bg:#f7f9fc; --txt:#122232; --card:#ffffff; }
+  body{font-family:Segoe UI,Roboto,Arial,sans-serif;margin:24px auto;max-width:1240px;background:var(--bg);color:var(--txt);line-height:1.6}
+  header{background:linear-gradient(90deg,var(--p),var(--p2));color:#fff;padding:18px 22px;border-radius:14px;margin-bottom:22px}
+  h1{margin:0 0 6px}
+  h2{color:var(--p);border-left:4px solid var(--p2);padding-left:10px;margin-top:28px}
+  h3{color:#10325a;margin-top:18px}
+  .mermaid{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin:14px 0}
+  table{border-collapse:collapse;width:100%;background:var(--card);border-radius:10px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.05);margin:12px 0}
+  th,td{border:1px solid #e6edf5;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef4ff;color:#0b3358}
+  .note{background:var(--card);border-left:4px solid #23a559;padding:10px;border-radius:8px;margin:10px 0}
+  code.inline{background:#f2f6fb;border:1px solid #e6edf5;border-radius:6px;padding:1px 6px}
+  footer{text-align:center;color:#6b7b8f;margin-top:30px}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>Paiements v28 — 3 couches + Kafka + Business Urgent/NonUrgent + ObservabilityPlatform</h1>
+  <p>Spring Boot • CDM XML • Split/Concat • Dynamic Routing • Duplicates • PII • Mermaid 10.9.4</p>
+</header>
+
+<!-- ========================================================= -->
+<h2>1. Vue generale — 3 couches avec Kafka + ObservabilityPlatform</h2>
+
+<div class="mermaid">
+%% Global view with colors and async calls to ObservabilityPlatform
+flowchart LR
+  IN[Ingress CFT MQ HTTP TCP]
+
+  subgraph L1_ING [Layer 1 - Ingestion]
+    IDF[Flux identification]
+    DEDUP_T[Duplicate check tech]
+    CLASS[Flux classification]
+    SPL_T[Split tech if big file]
+    DET[Detect format]
+    VLD[Validate XSD]
+    MAP_S_CDM[Transform source to CDM]
+    ROUTE_ING[Dynamic routing]
+  end
+
+  K_U[Kafka_ingest_to_business_urgent]
+  K_NU[Kafka_ingest_to_business_nonurgent]
+  K2[Kafka_business_to_distribution]
+
+  subgraph L2_BUS [Layer 2 - Business]
+    direction TB
+    subgraph URG [Canal Urgent]
+      F_DUPU[Duplicate check func]
+      F_SPLU[Split func]
+      F_TRU[Business transform]
+      F_ENRU[External enrich API]
+      F_VALU[Validate business]
+    end
+    subgraph NURG [Canal Non Urgent]
+      F_DUPN[Duplicate check func]
+      F_SPLN[Split func]
+      F_TRN[Business transform]
+      F_ENRN[External enrich API]
+      F_VALN[Validate business]
+    end
+  end
+
+  subgraph L3_DST [Layer 3 - Distribution]
+    ROUTE[Router rail mode]
+    SPL_LOG[Split logical CDM]
+    MAP_CDM_T[Mapping CDM to target]
+    CONC[Concat batches]
+    PUB[Publisher multi destinations]
+  end
+
+  %% Observability block
+  subgraph OBS [ObservabilityPlatform]
+    LOG[LOG]
+    AUD[AUDIT]
+    MON[MONITORING]
+  end
+
+  %% Main flows
+  IN-->IDF-->DEDUP_T-->CLASS-->SPL_T-->DET-->VLD-->MAP_S_CDM-->ROUTE_ING
+  ROUTE_ING-->K_U-->F_DUPU-->F_SPLU-->F_TRU-->F_ENRU-->F_VALU-->K2
+  ROUTE_ING-->K_NU-->F_DUPN-->F_SPLN-->F_TRN-->F_ENRN-->F_VALN-->K2
+  K2-->ROUTE-->SPL_LOG-->MAP_CDM_T-->CONC-->PUB
+
+  %% Async observability taps (dashed)
+  L1_ING -.-> LOG
+  L1_ING -.-> AUD
+  L1_ING -.-> MON
+  L2_BUS -.-> LOG
+  L2_BUS -.-> AUD
+  L2_BUS -.-> MON
+  L3_DST -.-> LOG
+  L3_DST -.-> AUD
+  L3_DST -.-> MON
+
+  %% Colors
+  classDef ing fill:#e9f1ff,stroke:#2a6fff,color:#102a56;
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  classDef dst fill:#fff3e6,stroke:#ff9f43,color:#5a3700;
+  classDef obs fill:#f1f1f1,stroke:#888,color:#222;
+  class IN,IDF,DEDUP_T,CLASS,SPL_T,DET,VLD,MAP_S_CDM,ROUTE_ING ing;
+  class F_DUPU,F_SPLU,F_TRU,F_ENRU,F_VALU,F_DUPN,F_SPLN,F_TRN,F_ENRN,F_VALN bus;
+  class ROUTE,SPL_LOG,MAP_CDM_T,CONC,PUB,K2,K_U,K_NU dst;
+  class OBS,LOG,AUD,MON obs;
+</div>
+
+<div class="note">
+Les flux fonctionnels passent par Kafka entre les couches. En parallèle, chaque couche émet <b>asynchronement</b> vers <b>ObservabilityPlatform</b> (journaux, audit, métriques).
+</div>
+
+<!-- ========================================================= -->
+<h2>1.1 Ingestion — sequence detaillee</h2>
+
+<div class="mermaid">
+flowchart TB
+  IN[Ingress CFT MQ HTTP TCP]
+  IDF[Flux identification]
+  DEDUP[Duplicate check tech]
+  CLASS[Flux classification]
+  SPLT[Split tech if big file]
+  DET[Detect format]
+  VLD[Validate XSD]
+  MAP[Transform source to CDM]
+  ROUTE[Dynamic routing]
+  IN --> IDF --> DEDUP --> CLASS --> SPLT --> DET --> VLD --> MAP --> ROUTE
+
+  %% Color
+  classDef ing fill:#e9f1ff,stroke:#2a6fff,color:#102a56;
+  class IN,IDF,DEDUP,CLASS,SPLT,DET,VLD,MAP,ROUTE ing;
+</div>
+
+<table>
+  <tr><th>Etape</th><th>Objectif</th><th>Entrees</th><th>Sorties</th><th>Controles</th></tr>
+  <tr><td>Ingress</td><td>Reception securisee</td><td>CFT, MQ, HTTP, TCP</td><td>Payload + meta</td><td>TLS, checksum, flowId</td></tr>
+  <tr><td>Flux identification</td><td>Lier au referentiel</td><td>Payload, meta</td><td>flowProfile</td><td>Lookup referentiel</td></tr>
+  <tr><td>Duplicate tech</td><td>Eviter double ingestion</td><td>hash, filename</td><td>OK/KO</td><td>Cache TTL court</td></tr>
+  <tr><td>Classification</td><td>Urgent / NonUrgent / Mass / Unit</td><td>Profile + meta</td><td>rail, mode</td><td>Seuils et cut-off</td></tr>
+  <tr><td>Split technique</td><td>Parallele gros fichiers</td><td>Fichier massif</td><td>Chunks</td><td>Taille / nb lignes</td></tr>
+  <tr><td>Detect format</td><td>Choisir parseur</td><td>Payload</td><td>MX/MT/CSV/XML/COBOL</td><td>Heuristique + override</td></tr>
+  <tr><td>Validate XSD</td><td>Conformite schema</td><td>Payload</td><td>OK/KO</td><td>Optionnel si non XML</td></tr>
+  <tr><td>Transform -> CDM</td><td>Pivot CDM XML</td><td>Source</td><td>CDM XML</td><td>XSLT/Bean + XSD CDM</td></tr>
+  <tr><td>Dynamic routing</td><td>Publier vers Kafka</td><td>CDM + rail</td><td>Kafka URG/NONURG</td><td>Topic par canal</td></tr>
+</table>
+
+<!-- ========================================================= -->
+<h2>1.2 Business — Urgent et NonUrgent</h2>
+
+<div class="mermaid">
+flowchart TB
+  K_U[Kafka ingest to business URGENT]
+  DUPU[Duplicate func URG]
+  SPLU[Split func URG]
+  TRU[Business transform URG]
+  ENRU[External enrich API URG]
+  VALU[Validate URG]
+  OUTU[Kafka business to distribution]
+
+  K_NU[Kafka ingest to business NONURG]
+  DUPN[Duplicate func NONURG]
+  SPLN[Split func NONURG]
+  TRN[Business transform NONURG]
+  ENRN[External enrich API NONURG]
+  VALN[Validate NONURG]
+  OUTN[Kafka business to distribution]
+
+  K_U-->DUPU-->SPLU-->TRU-->ENRU-->VALU-->OUTU
+  K_NU-->DUPN-->SPLN-->TRN-->ENRN-->VALN-->OUTN
+
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  class K_U,DUPU,SPLU,TRU,ENRU,VALU,OUTU,K_NU,DUPN,SPLN,TRN,ENRN,VALN,OUTN bus;
+</div>
+
+<div class="note">
+Urgent = faible latence; NonUrgent = debit massif.  
+Les deux canaux utilisent la meme logique CDM et convergent vers <code class="inline">Kafka_business_to_distribution</code>.
+</div>
+
+<!-- Enrichissement externe -->
+<h3>1.2.1 External enrich integrations</h3>
+<div class="mermaid">
+flowchart LR
+  INB[CDM in Business]
+  ENR[Enrich orchestrator]
+  AML[API AML]
+  SAN[API Sanctions]
+  CORE[API CoreBank]
+  FX[API FX]
+  OUTB[CDM after enrich]
+
+  INB-->ENR
+  ENR-->AML
+  ENR-->SAN
+  ENR-->CORE
+  ENR-->FX
+  AML-->ENR
+  SAN-->ENR
+  CORE-->ENR
+  FX-->ENR
+  ENR-->OUTB
+
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  class INB,ENR,AML,SAN,CORE,FX,OUTB bus;
+</div>
+
+<!-- ========================================================= -->
+<h2>1.3 Distribution</h2>
+
+<div class="mermaid">
+flowchart TB
+  D_IN[CDM from Kafka business to distribution]
+  ROUTE[Router rail mode]
+  SPL_LOG[Split logical CDM]
+  MAP1[Map CDM to PACS008]
+  MAP2[Map CDM to CAMT056]
+  MAP3[Map CDM to MT103 or JSON]
+  CONC[Concat batches]
+  PUB[Publish destinations]
+  D_IN-->ROUTE-->SPL_LOG
+  SPL_LOG-->MAP1-->CONC-->PUB
+  SPL_LOG-->MAP2
+  SPL_LOG-->MAP3
+
+  classDef dst fill:#fff3e6,stroke:#ff9f43,color:#5a3700;
+  class D_IN,ROUTE,SPL_LOG,MAP1,MAP2,MAP3,CONC,PUB dst;
+</div>
+
+<!-- ========================================================= -->
+<h2>2. Architecture federee multi-pays</h2>
+
+<div class="mermaid">
+flowchart TB
+  subgraph CTRL [Control plane global]
+    GIT[GitOps repo]
+    REG[Registry Maven Docker]
+    REF[Referentiels globaux]
+    OBS[Observability no PII]
+  end
+
+  subgraph FR [Data plane France]
+    FR_APP[Apps FR]
+    FR_DB[Postgres FR PII]
+    FR_VAULT[Vault FR]
+  end
+
+  subgraph GOLF [Data plane Golf]
+    GF_APP[Apps Golf]
+    GF_DB[Postgres Golf PII]
+    GF_VAULT[Vault Golf]
+  end
+
+  subgraph ASIA [Data plane Asia]
+    AS_APP[Apps Asia]
+    AS_DB[Postgres Asia PII]
+    AS_VAULT[Vault Asia]
+  end
+
+  GIT --> FR_APP
+  GIT --> GF_APP
+  GIT --> AS_APP
+  REG --> FR_APP
+  REG --> GF_APP
+  REG --> AS_APP
+  REF --> FR_APP
+  REF --> GF_APP
+  REF --> AS_APP
+  FR_DB --> OBS
+  GF_DB --> OBS
+  AS_DB --> OBS
+</div>
+
+<h3>2.1 CI/CD GitOps</h3>
+<div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant DEV as Dev
+  participant GIT as GitOps
+  participant CI as Build
+  participant REG as Registry
+  participant ARGO as ArgoCD
+  participant FR as Cluster_FR
+  participant GOL as Cluster_Golf
+  participant ASI as Cluster_Asia
+  DEV->>GIT: push code and overlays
+  GIT-->>CI: webhook
+  CI->>REG: build and push images
+  CI->>GIT: update chart versions
+  ARGO->>GIT: watch repos
+  ARGO->>FR: sync app fr prod
+  ARGO->>GOL: sync app golf prod
+  ARGO->>ASI: sync app asia prod
+</div>
+
+<h3>2.2 Separation PII / non PII</h3>
+<div class="mermaid">
+flowchart LR
+  subgraph LOCAL [Data plane local]
+    L_APP[Processing local]
+    L_DB[Postgres PII]
+    L_STORE[Object store PII]
+  end
+  subgraph CENTRAL [Control plane no PII]
+    C_KPI[Analytics KPI]
+    C_OBS[Observability]
+  end
+  L_APP --> L_DB
+  L_APP --> L_STORE
+  L_DB --> C_KPI
+  L_DB --> C_OBS
+</div>
+
+<h3>2.3 DR / High availability</h3>
+<div class="mermaid">
+flowchart TB
+  subgraph COUNTRY [Data plane country]
+    AZ1[Zone A primary]
+    AZ2[Zone B secondary]
+    DBP[Postgres primary]
+    DBS[Postgres standby]
+  end
+  AZ1 --> DBP
+  AZ2 --> DBS
+  DBP --> DBS
+</div>
+
+<!-- ========================================================= -->
+<h2>3. Comparaison stratégique des modèles (management)</h2>
+
+<p>
+Choix entre <b>Centrale</b>, <b>Locales</b> et <b>Fédérée</b>.
+Objectif : équilibrer <i>performance</i>, <i>conformité</i>, <i>coûts</i> et <i>agilité</i>.
+</p>
+
+<table>
+  <tr>
+    <th>Dimension</th>
+    <th>Centralisée</th>
+    <th>Locales</th>
+    <th>Fédérée (recommandée)</th>
+  </tr>
+  <tr>
+    <td><b>Gouvernance</b></td>
+    <td>Unique, homogène, lente aux variantes</td>
+    <td>Autonomie totale, hétérogène</td>
+    <td>Partagée : cadre global + autonomie contrôlée</td>
+  </tr>
+  <tr>
+    <td><b>Coûts d’exploitation</b></td>
+    <td>Faibles au départ, support central complexe</td>
+    <td>Élevés (équipes/infra dupliquées)</td>
+    <td>Équilibrés (socle mutualisé, exécution locale)</td>
+  </tr>
+  <tr>
+    <td><b>Latence / Performance</b></td>
+    <td>Dépendance WAN, risque URGP</td>
+    <td>Optimale locale</td>
+    <td>Locale + orchestration globale (Kafka, GitOps)</td>
+  </tr>
+  <tr>
+    <td><b>Résilience</b></td>
+    <td>SPOF global potentiel</td>
+    <td>Résilience locale, coordination faible</td>
+    <td>HA par pays, blast radius limité</td>
+  </tr>
+  <tr>
+    <td><b>Conformité / PII</b></td>
+    <td>Risque de non-résidence</td>
+    <td>OK mais non standard</td>
+    <td>PII locale + reporting anonymisé central</td>
+  </tr>
+  <tr>
+    <td><b>Évolutivité fonctionnelle</b></td>
+    <td>Lente, rigide</td>
+    <td>Rapide mais divergente</td>
+    <td>Rapide via overlays pays alignés CDM</td>
+  </tr>
+  <tr>
+    <td><b>Risque stratégique</b></td>
+    <td>Panne globale impactante</td>
+    <td>Dette technique multi-pays</td>
+    <td>Risque maîtrisé, cohérence + autonomie</td>
+  </tr>
+  <tr>
+    <td><b>Quand choisir</b></td>
+    <td>Peu de pays, contraintes faibles</td>
+    <td>Groupes très décentralisés</td>
+    <td>Banque multi-régions, exigences PII strictes</td>
+  </tr>
+</table>
+
+<div class="note">
+<b>Recommandation :</b> modele <b>federe</b> avec control plane global et data planes locaux.  
+Kafka assure le decouplage inter-couches; ObservabilityPlatform centralise log/audit/monitoring.
+</div>
+
+<footer>
+  © 2025 — Paiements v28 • 3 couches + Kafka • Business Urgent/NonUrgent • ObservabilityPlatform • Federe multi-pays • CDM XML • Mermaid 10.9.4
+</footer>
+
+</body>
+</html>
