@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Paiements v30 – Architecture détaillée</title>
+
+<!-- Mermaid 10.9.4 (CDN) -->
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.4/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+</script>
+
+<style>
+  :root { --p:#0f3b8c; --p2:#4b7bec; --g:#0b7a3b; --o:#b36b00; --bg:#f7f9fc; --txt:#122232; --card:#ffffff; }
+  body{font-family:Segoe UI,Roboto,Arial,sans-serif;margin:24px auto;max-width:1240px;background:var(--bg);color:var(--txt);line-height:1.6}
+  header{background:linear-gradient(90deg,var(--p),var(--p2));color:#fff;padding:18px 22px;border-radius:14px;margin-bottom:22px}
+  h1{margin:0 0 6px}
+  h2{color:var(--p);border-left:4px solid var(--p2);padding-left:10px;margin-top:28px}
+  h3{color:#10325a;margin-top:18px}
+  .mermaid{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin:14px 0}
+  table{border-collapse:collapse;width:100%;background:var(--card);border-radius:10px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.05);margin:12px 0}
+  th,td{border:1px solid #e6edf5;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#eef4ff;color:#0b3358}
+  .note{background:var(--card);border-left:4px solid #23a559;padding:10px;border-radius:8px;margin:10px 0}
+  code.inline{background:#f2f6fb;border:1px solid #e6edf5;border-radius:6px;padding:1px 6px}
+  footer{text-align:center;color:#6b7b8f;margin-top:30px}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>Paiements v30 – Architecture détaillée</h1>
+  <p>Spring Boot • CDM XML • Split technique & fonctionnel • Kafka • Dynamic Routing • Duplicates • ObservabilityPlatform • Mermaid 10.9.4</p>
+</header>
+
+<!-- ========================================================= -->
+<h2>1.0 Référentiel de flux (Flow Reference Table)</h2>
+
+<p>Table centrale pilotant <i>identification</i>, <i>classification</i>, <i>split</i>, <i>transformation</i>, <i>routage</i>, <i>enrichissement</i>, <i>rétention</i>, <i>shaping</i> et <i>conformité</i>.</p>
+
+<table>
+  <tr><th>Catégorie</th><th>Colonne</th><th>Type / Exemple</th><th>Description / Rôle</th></tr>
+
+  <!-- Identification -->
+  <tr><td><b>Identification</b></td><td>FLOW_ID</td><td>UUID</td><td>Identifiant unique du flux</td></tr>
+  <tr><td></td><td>FLOW_CODE</td><td>PACS008_SEPA_FR</td><td>Code lisible (pays + type + canal)</td></tr>
+  <tr><td></td><td>FLOW_NAME</td><td>Paiement SEPA Crédit FR</td><td>Nom fonctionnel</td></tr>
+  <tr><td></td><td>STATUS</td><td>ACTIVE / DISABLED</td><td>Activation/désactivation sans redéploiement</td></tr>
+
+  <!-- Canal & Entrée -->
+  <tr><td><b>Canal & Entrée</b></td><td>SOURCE_CHANNEL</td><td>CFT / MQ / HTTP / TCP</td><td>Canal d’entrée</td></tr>
+  <tr><td></td><td>SOURCE_SYSTEM</td><td>CORE_BANK_FR</td><td>Système émetteur / partenaire</td></tr>
+  <tr><td></td><td>SOURCE_FORMAT</td><td>MT103 / COBOL / CSV / MX / XML</td><td>Format d’entrée</td></tr>
+  <tr><td></td><td>SOURCE_XSD_PATH</td><td>/xsd/mt103.xsd</td><td>Schéma XSD source (si applicable)</td></tr>
+
+  <!-- Classification / SLA -->
+  <tr><td><b>Classification / SLA</b></td><td>FLOW_TYPE</td><td>CREDIT_TRANSFER / DIRECT_DEBIT</td><td>Type fonctionnel</td></tr>
+  <tr><td></td><td>RAIL_MODE</td><td>URGENT / NON_URGENT / MASS / UNIT</td><td>Mode de traitement</td></tr>
+  <tr><td></td><td>SLA_MAX_LATENCY_MS</td><td>5000</td><td>Latence maximum attendue</td></tr>
+  <tr><td></td><td>PRIORITY</td><td>1–5</td><td>Niveau de priorité</td></tr>
+
+  <!-- Split / Concat -->
+  <tr><td><b>Split / Concat</b></td><td>SPLIT_ENABLED</td><td>true/false</td><td>Active la découpe technique</td></tr>
+  <tr><td></td><td>SPLIT_CHUNK_SIZE</td><td>5000</td><td>Nb max de transactions par chunk</td></tr>
+  <tr><td></td><td>CONCAT_ENABLED</td><td>true/false</td><td>Active la concaténation de sortie</td></tr>
+  <tr><td></td><td>CONCAT_CRITERIA</td><td>PAYMENT_DATE / FILE_ID</td><td>Clé de regroupement</td></tr>
+
+  <!-- Transformation -->
+  <tr><td><b>Transformation</b></td><td>TRANSFORMATION_TYPE</td><td>XSLT / JAVA_BEAN</td><td>Type de mapping</td></tr>
+  <tr><td></td><td>SOURCE_TO_CDM_PATH</td><td>/xslt/mt103_to_cdm.xslt</td><td>XSLT source → CDM</td></tr>
+  <tr><td></td><td>CDM_TO_TARGET_PATH</td><td>/xslt/cdm_to_pacs008.xslt</td><td>XSLT CDM → cible</td></tr>
+  <tr><td></td><td>VALIDATION_RULESET</td><td>/rules/validation_rules.json</td><td>Règles métier (validation)</td></tr>
+
+  <!-- Routage -->
+  <tr><td><b>Routage</b></td><td>TARGET_SYSTEM</td><td>SWIFT / SEPA / ACH</td><td>Système destinataire</td></tr>
+  <tr><td></td><td>TARGET_CHANNEL</td><td>MQ / SFTP / API</td><td>Canal de sortie</td></tr>
+  <tr><td></td><td>DYNAMIC_ROUTING_KEY</td><td>country+rail+product</td><td>Clé d’orientation dynamique</td></tr>
+  <tr><td></td><td>TOPIC_OUT</td><td>business.to.distribution</td><td>Topic Kafka de sortie</td></tr>
+
+  <!-- Enrichissement -->
+  <tr><td><b>Enrichissement</b></td><td>ENRICHMENT_SERVICES</td><td>AML,SANCTIONS,FX,COREBANK</td><td>APIs externes à appeler</td></tr>
+  <tr><td></td><td>ENRICH_TIMEOUT_MS</td><td>3000</td><td>Timeout d’un appel externe</td></tr>
+
+  <!-- Rétention IN -->
+  <tr><td><b>Rétention IN</b></td><td>RETENTION_IN_ENABLED</td><td>true/false</td><td>Active la rétention en entrée</td></tr>
+  <tr><td></td><td>RETENTION_IN_MODE</td><td>PERIOD / RELEASE_DATE</td><td>Mode de libération</td></tr>
+  <tr><td></td><td>RETENTION_IN_DAYS</td><td>3</td><td>Jours à retenir (si PERIOD)</td></tr>
+  <tr><td></td><td>RETENTION_IN_RELEASE_DATE</td><td>2025-10-23T06:00:00Z</td><td>Date de libération (si RELEASE_DATE)</td></tr>
+  <tr><td></td><td>RETENTION_IN_STORAGE_PATH</td><td>S3://bucket/ingress/retained/</td><td>Stockage temporaire entrée</td></tr>
+
+  <!-- Rétention OUT -->
+  <tr><td><b>Rétention OUT</b></td><td>RETENTION_OUT_ENABLED</td><td>true/false</td><td>Active la rétention en sortie</td></tr>
+  <tr><td></td><td>RETENTION_OUT_MODE</td><td>PERIOD / RELEASE_DATE</td><td>Mode de libération</td></tr>
+  <tr><td></td><td>RETENTION_OUT_DAYS</td><td>5</td><td>Jours à retenir (si PERIOD)</td></tr>
+  <tr><td></td><td>RETENTION_OUT_RELEASE_DATE</td><td>2025-10-25T08:00:00Z</td><td>Date de libération (si RELEASE_DATE)</td></tr>
+  <tr><td></td><td>RETENTION_OUT_STORAGE_PATH</td><td>S3://bucket/outgoing/hold/</td><td>Stockage temporaire sortie</td></tr>
+
+  <!-- Shaping -->
+  <tr><td><b>Shaping / Débit</b></td><td>SHAPING_ENABLED</td><td>true/false</td><td>Active la régulation de débit</td></tr>
+  <tr><td></td><td>SHAPING_MAX_TRX_PER_MIN</td><td>5000</td><td>Nb max de transactions/min</td></tr>
+  <tr><td></td><td>SHAPING_STRATEGY</td><td>BURST / STEADY / DYNAMIC</td><td>Mode de régulation</td></tr>
+
+  <!-- Sécurité / Gouvernance -->
+  <tr><td><b>Sécurité / Gouvernance</b></td><td>PII_LEVEL</td><td>HIGH / LOW / NONE</td><td>Sensibilité des données</td></tr>
+  <tr><td></td><td>ENCRYPTION_REQUIRED</td><td>true/false</td><td>Chiffrement requis</td></tr>
+  <tr><td></td><td>DR_STRATEGY</td><td>SYNC_REPL / ASYNC_REPL / BACKUP_ONLY</td><td>Stratégie de reprise</td></tr>
+  <tr><td></td><td>OWNER_TEAM</td><td>Payments_FR_Tech</td><td>Équipe responsable</td></tr>
+  <tr><td></td><td>LAST_UPDATE</td><td>2025-10-20T14:30:00Z</td><td>Dernière mise à jour</td></tr>
+  <tr><td></td><td>VERSION</td><td>1.12.4</td><td>Version du flux</td></tr>
+  <tr><td></td><td>COMMENTS</td><td>Ajout shaping et retention</td><td>Historique / note</td></tr>
+</table>
+
+<h3>1.0.1 Intégration du référentiel dans les couches</h3>
+<div class="mermaid">
+flowchart TB
+  REF[(FLOW_REFERENCE)]
+  ING[Ingestion Layer]
+  BUS[Business Layer]
+  DST[Distribution Layer]
+  OBS[(ObservabilityPlatform)]
+
+  REF--lookup-->ING
+  REF--lookup-->BUS
+  REF--lookup-->DST
+  ING-.audit.->OBS
+  BUS-.metrics.->OBS
+  DST-.logs.->OBS
+
+  classDef ref fill:#e0f7fa,stroke:#0097a7,color:#00363a;
+  classDef obs fill:#f1f1f1,stroke:#888,color:#222;
+  class REF ref;
+  class OBS obs;
+</div>
+
+<h3>1.0.2 Exemples (3 flux)</h3>
+<table>
+  <tr><th>FLOW_CODE</th><th>Canal</th><th>Format</th><th>Rail</th><th>Split</th><th>Shaping</th><th>Retention IN</th><th>Retention OUT</th><th>Target</th></tr>
+  <tr><td>PACS008_SEPA_FR</td><td>MQ</td><td>XML</td><td>URGENT</td><td>false</td><td>enabled 3000/mn STEADY</td><td>enabled RELEASE_DATE 2025-10-23T06:00Z</td><td>false</td><td>SEPA API</td></tr>
+  <tr><td>PAIN001_COBOL_GOLF</td><td>CFT</td><td>COBOL</td><td>NON_URGENT</td><td>true chunk=5000</td><td>enabled 5000/mn DYNAMIC</td><td>false</td><td>enabled PERIOD 2d</td><td>ACH SFTP</td></tr>
+  <tr><td>MT103_SWIFT_ASIA</td><td>HTTP</td><td>MT103</td><td>URGENT</td><td>false</td><td>enabled 2000/mn BURST</td><td>enabled PERIOD 1d</td><td>enabled RELEASE_DATE 2025-10-21T22:00Z</td><td>SWIFT MQ</td></tr>
+</table>
+
+<div class="note">
+<b>Points clés de conception</b><br/>
+• Une seule source de vérité, versionnée et gouvernée.<br/>
+• Peut être exposée via un service REST <code class="inline">/referential/v1/flows/{flowCode}</code> ou chargée en cache local.<br/>
+• Permet de modifier la logique de flux sans redéploiement (dynamic refresh).<br/>
+• Gère le pilotage SLA, le routage, les mappings et les règles de bout en bout.<br/>
+• Peut être stockée dans PostgreSQL ou dans un référentiel de configuration (ConfigMap + cache Redis).
+</div>
+
+<!-- ========================================================= -->
+<h2>1. Vue générale — 3 couches avec Kafka + ObservabilityPlatform</h2>
+
+<div class="mermaid">
+%% Global view with Kafka_ingress_raw + explicit splits + legend
+flowchart LR
+  IN[Ingress CFT MQ HTTP TCP]
+  K_RAW[Kafka ingress raw]
+
+  subgraph L1_ING [Layer 1 - Ingestion]
+    IDF[Flux identification]
+    REF_LD[Load referential]
+    RET[Retention IN]
+    SHP[Shaping]
+    DEDUP_T[Duplicate check tech]
+    CLASS[Flux classification]
+    DET[Detect format]
+    VLD[Validate XSD]
+    SPL_T[Split technique]
+    MAP_S_CDM[Transform source to CDM]
+    ROUTE_ING[Dynamic routing]
+  end
+
+  K_U[Kafka_ingest_to_business_urgent]
+  K_NU[Kafka_ingest_to_business_nonurgent]
+  K2[Kafka_business_to_distribution]
+
+  subgraph L2_BUS [Layer 2 - Business]
+    direction TB
+    subgraph URG [Canal Urgent]
+      F_DUPU[Duplicate check func]
+      F_SPLU[Split fonctionnel]
+      F_TRU[Business transform]
+      F_ENRU[External enrich API]
+      F_VALU[Validate business]
+    end
+    subgraph NURG [Canal Non Urgent]
+      F_DUPN[Duplicate check func]
+      F_SPLN[Split fonctionnel]
+      F_TRN[Business transform]
+      F_ENRN[External enrich API]
+      F_VALN[Validate business]
+    end
+  end
+
+  subgraph L3_DST [Layer 3 - Distribution]
+    ROUTE[Router rail mode]
+    SPL_LOG[Split logical CDM]
+    MAP_CDM_T[Mapping CDM to target]
+    CONC[Concat batches]
+    PUB[Publish destinations]
+  end
+
+  subgraph OBS [ObservabilityPlatform]
+    LOG[LOG]
+    AUD[AUDIT]
+    MON[MONITORING]
+  end
+
+  %% main flow
+  IN-->K_RAW-->IDF-->REF_LD-->RET-->SHP-->DEDUP_T-->CLASS-->DET-->VLD-->SPL_T-->MAP_S_CDM-->ROUTE_ING
+  ROUTE_ING-->K_U-->F_DUPU-->F_SPLU-->F_TRU-->F_ENRU-->F_VALU-->K2
+  ROUTE_ING-->K_NU-->F_DUPN-->F_SPLN-->F_TRN-->F_ENRN-->F_VALN-->K2
+  K2-->ROUTE-->SPL_LOG-->MAP_CDM_T-->CONC-->PUB
+
+  %% observability taps
+  L1_ING -.-> LOG
+  L1_ING -.-> AUD
+  L1_ING -.-> MON
+  L2_BUS -.-> LOG
+  L2_BUS -.-> AUD
+  L2_BUS -.-> MON
+  L3_DST -.-> LOG
+  L3_DST -.-> AUD
+  L3_DST -.-> MON
+
+  %% legend (simple boxes)
+  subgraph LEG [Legend]
+    LG1[Blue = Ingestion]
+    LG2[Green = Business]
+    LG3[Orange = Distribution]
+    LG4[Gray = Observability]
+    LG5[Orange box K_RAW = Kafka ingress raw]
+  end
+
+  %% colors
+  classDef ing fill:#e9f1ff,stroke:#2a6fff,color:#102a56;
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  classDef dst fill:#fff3e6,stroke:#ff9f43,color:#5a3700;
+  classDef obs fill:#f1f1f1,stroke:#888,color:#222;
+  classDef raw fill:#ffe9d6,stroke:#ff9f43,color:#5a3700;
+
+  class IDF,REF_LD,RET,SHP,DEDUP_T,CLASS,DET,VLD,SPL_T,MAP_S_CDM,ROUTE_ING ing;
+  class F_DUPU,F_SPLU,F_TRU,F_ENRU,F_VALU,F_DUPN,F_SPLN,F_TRN,F_ENRN,F_VALN bus;
+  class ROUTE,SPL_LOG,MAP_CDM_T,CONC,PUB,K2 dst;
+  class OBS,LOG,AUD,MON obs;
+  class K_RAW raw;
+</div>
+
+<div class="note">
+<b>Note :</b> <code class="inline">Kafka_ingress_raw</code> sert de tampon de persistance entre la réception technique et le pipeline d’ingestion.  
+Il apporte découplage, résilience, rejeu et lissage de charge avant identification et réglages dynamiques issus du référentiel.
+</div>
+
+<!-- ========================================================= -->
+<h2>1.1 Ingestion — séquence optimisée</h2>
+
+<div class="mermaid">
+flowchart TB
+  IN[Ingress CFT MQ HTTP TCP]
+  KRAW[Kafka ingress raw]
+  IDF[Identification flux]
+  REF[Load referential]
+  RET[Retention IN]
+  SHP[Shaping]
+  DEDUP[Duplicate check tech]
+  CLASS[Flux classification]
+  DET[Detect format]
+  VLD[Validate XSD]
+  SPL[Split technique]
+  MAP[Transform source -> CDM XML]
+  ROUTE[Dynamic routing Kafka]
+
+  IN-->KRAW-->IDF-->REF-->RET-->SHP-->DEDUP-->CLASS-->DET-->VLD-->SPL-->MAP-->ROUTE
+
+  classDef ing fill:#e9f1ff,stroke:#2a6fff,color:#102a56;
+  class IN,KRAW,IDF,REF,RET,SHP,DEDUP,CLASS,DET,VLD,SPL,MAP,ROUTE ing;
+</div>
+
+<!-- ========================================================= -->
+<h2>1.2 Business — Urgent et NonUrgent</h2>
+
+<div class="mermaid">
+flowchart TB
+  K_U[Kafka ingest to business URGENT]
+  DUPU[Duplicate func URG]
+  SPLU[Split fonctionnel URG]
+  TRU[Business transform URG]
+  ENRU[External enrich API URG]
+  VALU[Validate URG]
+  OUTU[Kafka business to distribution]
+
+  K_NU[Kafka ingest to business NONURG]
+  DUPN[Duplicate func NONURG]
+  SPLN[Split fonctionnel NONURG]
+  TRN[Business transform NONURG]
+  ENRN[External enrich API NONURG]
+  VALN[Validate NONURG]
+  OUTN[Kafka business to distribution]
+
+  K_U-->DUPU-->SPLU-->TRU-->ENRU-->VALU-->OUTU
+  K_NU-->DUPN-->SPLN-->TRN-->ENRN-->VALN-->OUTN
+
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  class K_U,DUPU,SPLU,TRU,ENRU,VALU,OUTU,K_NU,DUPN,SPLN,TRN,ENRN,VALN,OUTN bus;
+</div>
+
+<h3>1.2.1 External enrich integrations</h3>
+<div class="mermaid">
+flowchart LR
+  INB[CDM in Business]
+  ENR[Enrich orchestrator]
+  AML[API AML]
+  SAN[API Sanctions]
+  CORE[API CoreBank]
+  FX[API FX]
+  OUTB[CDM after enrich]
+
+  INB-->ENR
+  ENR-->AML
+  ENR-->SAN
+  ENR-->CORE
+  ENR-->FX
+  AML-->ENR
+  SAN-->ENR
+  CORE-->ENR
+  FX-->ENR
+  ENR-->OUTB
+
+  classDef bus fill:#e9fff2,stroke:#23a559,color:#0b3b21;
+  class INB,ENR,AML,SAN,CORE,FX,OUTB bus;
+</div>
+
+<!-- ========================================================= -->
+<h2>1.3 Distribution</h2>
+
+<div class="mermaid">
+flowchart TB
+  D_IN[CDM from Kafka business to distribution]
+  ROUTE[Router rail mode]
+  SPL_LOG[Split logical CDM]
+  MAP1[Map CDM to PACS008]
+  MAP2[Map CDM to CAMT056]
+  MAP3[Map CDM to MT103 or JSON]
+  CONC[Concat batches]
+  PUB[Publish destinations]
+  D_IN-->ROUTE-->SPL_LOG
+  SPL_LOG-->MAP1-->CONC-->PUB
+  SPL_LOG-->MAP2
+  SPL_LOG-->MAP3
+
+  classDef dst fill:#fff3e6,stroke:#ff9f43,color:#5a3700;
+  class D_IN,ROUTE,SPL_LOG,MAP1,MAP2,MAP3,CONC,PUB dst;
+</div>
+
+<!-- ========================================================= -->
+<h2>2. Architecture fédérée multi-pays</h2>
+
+<div class="mermaid">
+flowchart TB
+  subgraph CTRL [Control plane global]
+    GIT[GitOps repo]
+    REG[Registry Maven Docker]
+    REF[Référentiels globaux]
+    OBS[Observability no PII]
+  end
+
+  subgraph FR [Data plane France]
+    FR_APP[Apps FR]
+    FR_DB[Postgres FR PII]
+    FR_VAULT[Vault FR]
+  end
+
+  subgraph GOLF [Data plane Golf]
+    GF_APP[Apps Golf]
+    GF_DB[Postgres Golf PII]
+    GF_VAULT[Vault Golf]
+  end
+
+  subgraph ASIA [Data plane Asia]
+    AS_APP[Apps Asia]
+    AS_DB[Postgres Asia PII]
+    AS_VAULT[Vault Asia]
+  end
+
+  GIT --> FR_APP
+  GIT --> GF_APP
+  GIT --> AS_APP
+  REG --> FR_APP
+  REG --> GF_APP
+  REG --> AS_APP
+  REF --> FR_APP
+  REF --> GF_APP
+  REF --> AS_APP
+  FR_DB --> OBS
+  GF_DB --> OBS
+  AS_DB --> OBS
+</div>
+
+<h3>2.1 CI/CD GitOps</h3>
+<div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant DEV as Dev
+  participant GIT as GitOps
+  participant CI as Build
+  participant REG as Registry
+  participant ARGO as ArgoCD
+  participant FR as Cluster_FR
+  participant GOL as Cluster_Golf
+  participant ASI as Cluster_Asia
+  DEV->>GIT: push code and overlays
+  GIT-->>CI: webhook
+  CI->>REG: build and push images
+  CI->>GIT: update chart versions
+  ARGO->>GIT: watch repos
+  ARGO->>FR: sync app fr prod
+  ARGO->>GOL: sync app golf prod
+  ARGO->>ASI: sync app asia prod
+</div>
+
+<h3>2.2 Séparation PII / non PII</h3>
+<div class="mermaid">
+flowchart LR
+  subgraph LOCAL [Data plane local]
+    L_APP[Processing local]
+    L_DB[Postgres PII]
+    L_STORE[Object store PII]
+  end
+  subgraph CENTRAL [Control plane no PII]
+    C_KPI[Analytics KPI]
+    C_OBS[Observability]
+  end
+  L_APP --> L_DB
+  L_APP --> L_STORE
+  L_DB --> C_KPI
+  L_DB --> C_OBS
+</div>
+
+<h3>2.3 DR / Haute disponibilité</h3>
+<div class="mermaid">
+flowchart TB
+  subgraph COUNTRY [Data plane country]
+    AZ1[Zone A primary]
+    AZ2[Zone B secondary]
+    DBP[Postgres primary]
+    DBS[Postgres standby]
+  end
+  AZ1 --> DBP
+  AZ2 --> DBS
+  DBP --> DBS
+</div>
+
+<!-- ========================================================= -->
+<h2>3. Comparaison stratégique (management)</h2>
+<table>
+  <tr><th>Dimension</th><th>Centralisée</th><th>Locales</th><th>Fédérée (recommandée)</th></tr>
+  <tr><td>Gouvernance</td><td>Unique, rigide</td><td>Autonomie totale</td><td>Partagée : cadre global + autonomie</td></tr>
+  <tr><td>Coûts d’exploitation</td><td>Faibles au départ</td><td>Élevés (dupliqué)</td><td>Équilibrés (socle commun, exécution locale)</td></tr>
+  <tr><td>Latence / Perf</td><td>Dépendance WAN</td><td>Optimale locale</td><td>Locale + orchestration globale</td></tr>
+  <tr><td>Résilience</td><td>SPOF global</td><td>Locale</td><td>HA par pays, blast radius limité</td></tr>
+  <tr><td>Conformité / PII</td><td>Risque résidence</td><td>OK local</td><td>PII locale + reporting anonymisé</td></tr>
+  <tr><td>Évolutivité</td><td>Lente</td><td>Divergente</td><td>Rapide via overlays alignés CDM</td></tr>
+  <tr><td>Quand choisir</td><td>Peu de pays</td><td>Groupes très décentralisés</td><td>Banque multi-régions</td></tr>
+</table>
+
+<div class="note">
+<b>Recommandation :</b> modèle <b>fédéré</b> avec control plane global et data planes locaux.  
+Kafka assure le découplage inter-couches ; ObservabilityPlatform centralise log/audit/monitoring.
+</div>
+
+<footer>
+  © 2025 — Paiements v30 • Architecture détaillée • 3 couches + Kafka • Split technique/fonctionnel • ObservabilityPlatform • Fédérée multi-pays • CDM XML • Mermaid 10.9.4
+</footer>
+
+</body>
+</html>
