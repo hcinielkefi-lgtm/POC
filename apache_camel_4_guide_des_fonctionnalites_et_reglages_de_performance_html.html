@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Guide Apache Camel 4.15 : performances, fiabilité, retries et rejeux, HTTP/3, OpenTelemetry, bonnes pratiques.">
+<title>Apache Camel 4.15 — Guide complet de performance, fiabilité & rejeux</title>
+<style>
+:root{
+  /* Thème vert inspiré BNP */
+  --bg:#0b1f1a; --panel:#0f2a22; --muted:#9fc2b3; --text:#ecf7f3;
+  --accent:#00a160; --accent2:#7ae1a6; --ok:#6ad18e; --warn:#f6d78f; --danger:#ff9aa2;
+}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;overflow-x:hidden;}
+a{color:var(--accent)}
+.wrap{max-width:1150px;margin:auto;padding:32px 20px 80px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:24px}
+.title{font-size:28px;font-weight:800;letter-spacing:.2px}
+.subtitle{color:var(--muted);font-size:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(0,161,96,.35);background:rgba(0,161,96,.12);font-size:12px}
+
+/* code lisible et non tronqué */
+code{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:2px 5px;
+  font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;hyphens:auto;}
+pre{margin:10px 0}
+pre code{display:block;padding:10px 12px;border-radius:10px;background:rgba(0,161,96,.12);border:1px solid rgba(0,161,96,.25);
+  white-space:pre;overflow-x:auto;overflow-y:hidden;max-width:100%}
+
+/* toc */
+nav.toc{background:var(--panel);border-radius:16px;padding:14px;margin:18px 0 28px;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  display:flex;overflow-x:auto;gap:8px;position:sticky;top:10px;z-index:10}
+nav.toc a{flex:none;padding:6px 10px;font-size:14px;text-decoration:none;color:var(--text);white-space:nowrap;border-radius:8px;border:1px solid rgba(255,255,255,.06)}
+nav.toc a:hover{background:rgba(0,161,96,.15);border-color:rgba(0,161,96,.35)}
+
+/* cartes/grilles */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--panel);border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  border:1px solid rgba(255,255,255,.06);overflow:visible;transition:.25s transform ease,.25s box-shadow ease,.25s border-color ease;}
+.card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.35);border-color:rgba(0,161,96,.35)}
+.card h3{margin:.3rem 0 .6rem;font-size:18px}
+.tag{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;color:#0b1f1a;background:var(--accent);
+  margin-right:6px;margin-bottom:8px;white-space:nowrap;border:1px solid rgba(0,0,0,.15)}
+.tag.core{background:#14b377}.tag.thread{background:#36c488}.tag.http{background:#00a160}
+.tag.jms{background:#4ecb9a}.tag.jdbc{background:#7ae1a6}.tag.cache{background:#a3f0c5}.tag.obs{background:#d6f5e7}
+
+.kv{display:grid;grid-template-columns:minmax(120px,170px) 1fr;gap:8px 12px;margin-top:8px}
+.kv .k{color:var(--muted)}
+.kv div{font-size:14px;overflow-wrap:break-word;word-break:break-word}
+section{margin:36px 0}
+section h2{font-size:22px;margin-bottom:12px}
+.hr{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent);margin:28px 0}
+.note{font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px}
+.gain{font-weight:700}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+th,td{border:1px solid rgba(255,255,255,.08);padding:6px 10px;text-align:left}
+th{background:rgba(0,161,96,.15);border-color:rgba(0,161,96,.25)}
+.footer{margin-top:40px;color:var(--muted);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="title">Apache Camel 4.15 — Guide complet de performance, fiabilité et rejeux</div>
+      <div class="subtitle">Optimisations, retries, faultTolerance, HTTP/3, OpenTelemetry et bonnes pratiques (Java 17/21).</div>
+    </div>
+    <span class="badge">Thème vert — BNP-style</span>
+  </header>
+
+  <p>Ce guide regroupe les optimisations et bonnes pratiques d’<strong>Apache Camel 4.15</strong> : moteur, EIPs, connecteurs, retries/rejeux et observabilité. Les <em>gains</em> indiqués sont des ordres de grandeur pour prioriser vos chantiers.</p>
+
+  <nav class="toc" role="navigation" aria-label="Sommaire">
+    <a href="#core">Cœur</a><a href="#threading">Threading</a><a href="#jms">JMS</a><a href="#http">HTTP</a>
+    <a href="#jdbc">JDBC</a><a href="#cache">Cache</a><a href="#io">I/O</a><a href="#obs">Observabilité</a>
+    <a href="#synthese">Synthèse</a><a href="#retry">Retry & rejeux</a><a href="#pratiques">Bonnes pratiques</a>
+  </nav>
+
+  <!-- 1) CORE -->
+  <section id="core">
+    <h2>1) Cœur & moteur</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag core">Core</span><h3>Exchange Pooling</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>PooledExchangeFactory réutilise les <code>Exchange</code> / <code>Message</code> pour réduire les allocations et la pression GC.</div>
+          <div class="k">Avantages</div><div>Latence plus stable, moins de garbage, meilleures p95/p99.</div>
+          <div class="k">Gains</div><div class="gain">+10–30 % throughput (CPU-bound), p95 –10–25 %.</div>
+          <div class="k">Clés</div><div><code>camel.main.exchange-factory=pooled</code>, <code>camel.main.exchange-factory-capacity=5000</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag thread">Virtual Threads</span><h3>Exécuteur virtuel JDK&nbsp;21+</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Concurrence massive I/O sans coût mémoire par thread natif ; idéal pour HTTP, JMS, JDBC réseau.</div>
+          <div class="k">Avantages</div><div>Moins de contention, simplicité d’EIPs bloquants.</div>
+          <div class="k">Gains</div><div class="gain">Latence p95 I/O –20–45 %, utilisation CPU plus régulière.</div>
+          <div class="k">Clé</div><div><code>camel.main.reactiveExecutorType=virtual</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag core">Reactive</span><h3>Moteur réactif & back-pressure</h3>
+        <div class="kv">
+          <div class="k">Description</div><div><code>camel-reactive-streams</code> aligne la demande/production et évite l’emballement.</div>
+          <div class="k">Avantages</div><div>Écrêtage naturel des pics, meilleures files internes.</div>
+          <div class="k">Gains</div><div class="gain">+20–40 % débit sur pipelines réseau parallèles.</div>
+          <div class="k">Clés</div><div><code>camel-reactive-streams</code>, <code>camel.main.reactiveExecutorType</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 2) THREADING -->
+  <section id="threading">
+    <h2>2) Multithreading & EIPs</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag thread">Pools</span><h3>Profils de pools dédiés</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Définir des <em>executor services</em> séparés pour les EIPs critiques (split, aggregate, wireTap).</div>
+          <div class="k">Avantages</div><div>Isolation des hotspots, pas d’épuisement du pool global.</div>
+          <div class="k">Gains</div><div class="gain">Débit linéaire jusqu’au goulot externe ; p95 –10–20 %.</div>
+          <div class="k">Clés</div><div><code>poolSize</code>, <code>maxPoolSize</code>, <code>queueSize</code>, <code>rejectedPolicy</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag thread">EIPs</span><h3>Parallel Split / Multicast</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Exécution parallèle des branches indépendantes ; attention aux ressources partagées.</div>
+          <div class="k">Avantages</div><div>Réduction du temps total pour travaux indépendants.</div>
+          <div class="k">Gains</div><div class="gain">xN selon #cœurs / I-O ; p95 –25–50 % sur lots.</div>
+          <div class="k">Clés</div><div><code>parallelProcessing=true</code>, <code>executorServiceRef</code>, <code>timeout</code>, <code>streaming</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag thread">Async</span><h3>ReactiveExecutor ciblé</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Choisir <code>virtual</code> (I/O) ou <code>threadpool</code> (CPU). Mix possible par route.</div>
+          <div class="k">Avantages</div><div>Moins de contention, adaptation au profil.</div>
+          <div class="k">Gains</div><div class="gain">+10–25 % throughput si adapté à la charge.</div>
+          <div class="k">Clé</div><div><code>camel.main.reactiveExecutorType=virtual|threadpool</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 3) JMS -->
+  <section id="jms">
+    <h2>3) JMS / Messaging</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag jms">JMS</span><h3>Consommateurs concurrents</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Plusieurs sessions consomment en parallèle sur une destination ; contrôle fin via broker/pool.</div>
+          <div class="k">Avantages</div><div>Débit accru, meilleure utilisation CPU.</div>
+          <div class="k">Gains</div><div class="gain">Échelle quasi linéaire jusqu’à la limite broker/DB.</div>
+          <div class="k">Clés</div><div><code>concurrentConsumers</code>, <code>maxConcurrentConsumers</code>, <code>asyncConsumer</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag jms">QoS</span><h3>Acknowledge & persistance</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Ajuster <em>ack mode</em> et persistance selon criticité ; batch d’acks si possible.</div>
+          <div class="k">Avantages</div><div>Moins d’I/O broker, latence plus faible sur flux non critiques.</div>
+          <div class="k">Gains</div><div class="gain">p95 –15–35 % (non-persistant / non-transacted).</div>
+          <div class="k">Clés</div><div><code>acknowledgementModeName</code>, <code>transacted</code>, <code>deliveryPersistent</code>, <code>timeToLive</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag jms">Reply</span><h3>Cache sessions & replyTo</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Cache des sessions + <code>replyToType=Exclusive</code> pour RPC rapides.</div>
+          <div class="k">Avantages</div><div>Moins de création d’objets JMS, jitter réduit.</div>
+          <div class="k">Gains</div><div class="gain">latence médiane –20–40 % sur request/reply.</div>
+          <div class="k">Clés</div><div><code>cacheLevelName=CACHE_CONSUMER</code>, <code>replyToType=Exclusive</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 4) HTTP -->
+  <section id="http">
+    <h2>4) HTTP / Netty / Vert.x</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag http">HTTP</span><h3>Keep-Alive & pool</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Réutilisation des connexions sortantes (HttpClient/Netty) pour éviter handshakes TCP/TLS.</div>
+          <div class="k">Avantages</div><div>Latence p50–p95 plus basse et stable.</div>
+          <div class="k">Gains</div><div class="gain">p50 –20–60 %, p95 –15–40 %.</div>
+          <div class="k">Clés</div><div><code>maxTotal</code>, <code>defaultMaxPerRoute</code>, <code>keepAlive</code>, timeouts</div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag http">HTTP/3</span><h3>ALPN / Jetty&nbsp;12 / Vert.x&nbsp;5</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>HTTP/2/3 multiplexent plusieurs requêtes sur moins de connexions ; bénéfique sur latences réseau.</div>
+          <div class="k">Avantages</div><div>Réduction de la latence sous charge, meilleure utilisation des sockets.</div>
+          <div class="k">Gains</div><div class="gain">p95 –15–35 % (selon réseau).</div>
+          <div class="k">Clés</div><div><code>useHttp2=true</code>, <code>useHttp3=true</code>, <code>alpnEnabled=true</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag http">Streaming</span><h3>Streaming & no-buffer</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Transmettre les corps sans les matérialiser en entier (chunked/streaming).</div>
+          <div class="k">Avantages</div><div>Empreinte heap faible, support de gros payloads.</div>
+          <div class="k">Gains</div><div class="gain">OOM évité, p95 stable sur volumétrie.</div>
+          <div class="k">Clés</div><div><code>streaming</code>, <code>disableStreamCache</code>, <code>camel.main.stream-caching-enabled=false</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 5) JDBC -->
+  <section id="jdbc">
+    <h2>5) JDBC / SQL</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag jdbc">Streaming</span><h3>outputType=StreamList</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Lecture des résultats en flux avec <code>fetchSize</code> pour éviter le chargement total en mémoire.</div>
+          <div class="k">Avantages</div><div>Faible empreinte, pas de pics GC.</div>
+          <div class="k">Gains</div><div class="gain">p95 stable, pas de pauses GC longues.</div>
+          <div class="k">Clés</div><div><code>outputType=StreamList</code>, <code>fetchSize</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag jdbc">Pool</span><h3>DataSource performant</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>HikariCP/Agroal limitent le coût d’ouverture de connexions.</div>
+          <div class="k">Avantages</div><div>Latence plus faible, meilleure résilience.</div>
+          <div class="k">Gains</div><div class="gain">p95 –10–30 %, moins de timeouts.</div>
+          <div class="k">Clés</div><div><code>maximumPoolSize</code>, <code>connectionTimeout</code>, <code>leakDetectionThreshold</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag jdbc">Batch</span><h3>SQL paramétré & lots</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Paramètres nommés et exécutions par lots réduisent parsing et allers-retours.</div>
+          <div class="k">Avantages</div><div>Débit élevé sur inserts/updates massifs.</div>
+          <div class="k">Gains</div><div class="gain">x3–x6 sur bulk inserts.</div>
+          <div class="k">Clés</div><div><code>useHeadersAsParameters</code>, <code>allowNamedParameters</code>, <code>batch=true</code>, <code>batchSize</code>, <code>autoCommit=false</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 6) CACHE -->
+  <section id="cache">
+    <h2>6) Cache & Idempotence</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag cache">Cache</span><h3>Caffeine / Redis</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Cache des réponses et fragments pour éviter des I/O répétitives.</div>
+          <div class="k">Avantages</div><div>Latence stable sur hot paths, soulage la DB.</div>
+          <div class="k">Gains</div><div class="gain">x5–x10 sur clés fréquemment sollicitées.</div>
+          <div class="k">Clés</div><div><code>maximumSize</code>, <code>expireAfterWrite</code>, <code>statsEnabled=true</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag cache">Idempotence</span><h3>Idempotent Consumer</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Empêche le retraitement d’un message déjà vu (clé métier ou ID message).</div>
+          <div class="k">Avantages</div><div>Moins de doublons et de retris inutiles.</div>
+          <div class="k">Gains</div><div class="gain">Débit utile ↑, taux d’erreur “duplicate” ↓ significativement.</div>
+          <div class="k">Exemple</div><div><code>idempotentConsumer(header("id"), new CaffeineIdempotentRepository())</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 7) IO -->
+  <section id="io">
+    <h2>7) I/O & Stream Caching</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag core">Auto-spooling</span><h3>Spool automatique</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Spool vers disque au-delà d’un seuil dynamique pour protéger la heap.</div>
+          <div class="k">Avantages</div><div>Évite OOM, stabilise p95/p99 sous gros payloads.</div>
+          <div class="k">Gains</div><div class="gain">p99 –20–40 % sur charges mixtes.</div>
+          <div class="k">Clé</div><div><code>camel.main.stream-caching-auto-spool-threshold=10MB</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag core">Spool dir</span><h3>Répertoire dédié</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Sépare le spool sur stockage rapide, surveillé.</div>
+          <div class="k">Avantages</div><div>Débit constant, isolation disque/heap.</div>
+          <div class="k">Gains</div><div class="gain">Variabilité latence ↓, pas de pauses GC liées aux buffers.</div>
+          <div class="k">Clé</div><div><code>camel.main.stream-caching-spool-directory=/tmp/camel/spool</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 8) OBS -->
+  <section id="obs">
+    <h2>8) Observabilité</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag obs">OTel</span><h3>OpenTelemetry (OTLP)</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Traces + métriques corrélées pour diagnostiquer les routes et EIPs.</div>
+          <div class="k">Avantages</div><div>MTTR ↓, visibilité bout-à-bout.</div>
+          <div class="k">Gains</div><div class="gain">Temps de diagnostic ÷2 à ÷5.</div>
+          <div class="k">Clés</div><div><code>camel.main.opentelemetry-enabled=true</code>, <code>camel.main.opentelemetry-exporter=otlp</code></div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag obs">Metrics</span><h3>Micrometer & Dev Console</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Métriques <code>camel.*</code> (throughput, latences, erreurs) + console pour routes lentes.</div>
+          <div class="k">Avantages</div><div>Tuning orienté données, alertes précoces.</div>
+          <div class="k">Gains</div><div class="gain">SLO tenus plus souvent, incidents détectés plus vite.</div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Nouvelles métriques utiles : <code>camel_retry_attempts_total</code>, <code>camel_dead_letter_messages_total</code>.</p>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 9) SYNTHÈSE -->
+  <section id="synthese">
+    <h2>9) Synthèse rapide</h2>
+    <table>
+      <thead><tr><th>Domaine</th><th>Réglage clé</th><th>Gain typique</th><th>Risque</th></tr></thead>
+      <tbody>
+        <tr><td>Core</td><td>Exchange pooling</td><td>+10–30 % throughput</td><td>capacité pool à calibrer</td></tr>
+        <tr><td>Threads</td><td>Virtual Threads</td><td>p95 I/O –20–45 %</td><td>profilage requis</td></tr>
+        <tr><td>HTTP</td><td>pool + HTTP/2/3</td><td>p95 –15–40 %</td><td>connexions ouvertes ↑</td></tr>
+        <tr><td>JDBC</td><td>streaming + batch</td><td>x3–x6 inserts</td><td>gestion transactions</td></tr>
+        <tr><td>Cache</td><td>Caffeine/Redis</td><td>x5–x10 hot paths</td><td>cohérence/TTL</td></tr>
+        <tr><td>Retry</td><td>faultTolerance + DLQ</td><td>reprise rapide</td><td>rejeu massif si non limité</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 10) RETRY -->
+  <section id="retry">
+    <h2>10) Retry & Rejeux résilients</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="tag core">Retry</span><h3>ErrorHandler global</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Politique commune de redelivery avec backoff exponentiel et plafond.</div>
+          <div class="k">Avantages</div><div>Réduit les tempêtes de retry, latence plus prévisible.</div>
+          <div class="k">Gains</div><div class="gain">Erreurs transitoires absorbées (–50–80 % d’échecs visibles).</div>
+          <div class="k">Exemple</div><div>
+            <pre><code>errorHandler(deadLetterChannel("jms:queue:dead")
+  .useOriginalMessagePolicy(true)
+  .maximumRedeliveries(5)
+  .redeliveryDelay(2000)
+  .useExponentialBackOff()
+  .backOffMultiplier(2.0));</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag core">Exception</span><h3>onException ciblé</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Politique différente selon l’exception (timeout, 5xx, etc.).</div>
+          <div class="k">Avantages</div><div>Moins de retries inutiles, logs plus propres.</div>
+          <div class="k">Gains</div><div class="gain">Charge CPU ↓, p95 ↓ quand l’aval est flaky.</div>
+          <div class="k">Exemple</div><div>
+            <pre><code>onException(IOException.class)
+  .redeliveryPolicyRef("customPolicy")
+  .handled(true);</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag core">FaultTolerance</span><h3>Circuit Breaker (DSL moderne)</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Ouvre le circuit si le taux d’échec dépasse un seuil ; évite la surcharge avale.</div>
+          <div class="k">Avantages</div><div>Stabilise la plate-forme en incident, protège les dépendances.</div>
+          <div class="k">Gains</div><div class="gain">Rétablissement plus rapide, files internes stables.</div>
+          <div class="k">Exemple</div><div>
+            <pre><code>faultTolerance()
+  .failureRatio(0.5)
+  .delay(2, TimeUnit.SECONDS)
+  .timeoutEnabled(true)
+  .timeoutDuration(3, TimeUnit.SECONDS);</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag cache">DLQ</span><h3>Dead Letter Channel</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Dirige les messages échoués après retries vers une DLQ pour rejeu.</div>
+          <div class="k">Avantages</div><div>Aucune perte, audit et reprise contrôlée.</div>
+          <div class="k">Gains</div><div class="gain">MTTR ↓, reprise à chaud possible.</div>
+          <div class="k">Exemple</div><div>
+            <pre><code>errorHandler(deadLetterChannel("jms:queue:dead")
+  .useOriginalMessagePolicy(true));</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="tag core">Replay</span><h3>Rejeu manuel contrôlé</h3>
+        <div class="kv">
+          <div class="k">Description</div><div>Réinjection graduelle de la DLQ avec traçabilité et limitation de débit.</div>
+          <div class="k">Avantages</div><div>Évite l’effet “orage” en production.</div>
+          <div class="k">Gains</div><div class="gain">Risque de surcharge ↓, stabilité ↑.</div>
+          <div class="k">Exemple</div><div>
+            <pre><code>from("jms:queue:dead")
+  .setHeader("X-Replayed", constant(true))
+  .to("jms:queue:input");</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Bonnes pratiques : activer <code>useOriginalMessagePolicy(true)</code>, combiner <code>faultTolerance()</code> et <code>errorHandler()</code>, surveiller <code>camel_retry_attempts_total</code> et <code>camel_dead_letter_messages_total</code>, et protéger les rejeux par <em>rate limiting</em> + <code>idempotentConsumer()</code>.</p>
+  </section>
+
+  <div class="hr"></div>
+
+  <!-- 11) BONNES PRATIQUES -->
+  <section id="pratiques">
+    <h2>11) Bonnes pratiques de tuning</h2>
+    <ul>
+      <li>Désactiver <code>messageHistory</code> et tracing en prod (hors diagnostic ciblé).</li>
+      <li>Calibrer pools HTTP/JDBC + <code>exchange-factory=pooled</code> ; surveiller la heap après GC.</li>
+      <li>Préférer les formats streaming (Jackson streaming, StAX) aux DOM complets.</li>
+      <li>Mesurer p95/p99 et profiler CPU/allocations (Micrometer/OTel/Dev Console).</li>
+      <li>Limiter le rejeu (DLQ) via **rate-limit** et **fenêtrage horaire**.</li>
+    </ul>
+    <p class="note">⚠️ Les gains sont indicatifs et dépendent du matériel, JDK/GC, brokers/drivers et patterns de charge.</p>
+  </section>
+
+  <div class="footer">Dernière mise à jour : novembre 2025 — Guide Apache Camel 4.15 — Thème vert BNP-style</div>
+</div>
+</body>
+</html>
